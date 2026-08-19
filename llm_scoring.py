@@ -1,50 +1,70 @@
-
 import os
 import json
-from openai import OpenAI
 from dotenv import load_dotenv
+from google import genai
 
 from prompts import SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
 
-# Load environment variables
 load_dotenv()
 
-# Create OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+api_key = os.getenv("GEMINI_API_KEY")
+
+if not api_key:
+    raise ValueError("GEMINI_API_KEY not found in .env")
+
+client = genai.Client(api_key=api_key)
 
 
 def qualify_lead(lead):
-    """
-    Send lead information to the LLM and receive
-    a qualification score and recommendation.
-    """
-
     user_prompt = USER_PROMPT_TEMPLATE.format(
-        company=lead["company"],
-        industry=lead["industry"],
-        company_size=lead["company_size"],
-        budget=lead["budget"],
-        business_need=lead["business_need"],
-        timeline=lead["timeline"],
-        decision_maker=lead["decision_maker"]
+        company=lead.get("company", "Not provided"),
+        industry=lead.get("industry", "Not provided"),
+        company_size=lead.get("company_size", "Not provided"),
+        budget=lead.get("budget", "Not provided"),
+        business_need=lead.get("business_need", "Not provided"),
+        timeline=lead.get("timeline", "Not provided"),
+        decision_maker=lead.get("decision_maker", "Not provided")
     )
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        temperature=0.2,
-        response_format={"type": "json_object"},
-        messages=[
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            },
-            {
-                "role": "user",
-                "content": user_prompt
+    prompt = f"""
+{SYSTEM_PROMPT}
+
+{user_prompt}
+"""
+
+    try:
+        response = client.models.generate_content(
+           model="gemini-3.5-flash-lite",
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json"
             }
-        ]
-    )
+        )
 
-    result = json.loads(response.choices[0].message.content)
+        result = json.loads(response.text)
 
-    return result
+        score = int(result.get("score", 0))
+        score = max(0, min(100, score))
+
+        return {
+            "score": score,
+            "classification": result.get(
+                "classification", "Unqualified"
+            ),
+            "reason": result.get(
+                "reason", "No reason provided."
+            ),
+            "recommended_action": result.get(
+                "recommended_action",
+                "Review the lead manually."
+            )
+        }
+
+    except Exception as error:
+        return {
+            "score": 0,
+            "classification": "Unqualified",
+            "reason": f"LLM processing error: {error}",
+            "recommended_action": "Review the lead manually."
+        }
+

@@ -10,6 +10,7 @@ lead = {
     "decision_maker": "No"
 }
 
+print("Analyzing lead with AI...")
 
 result = qualify_lead(lead)
 
